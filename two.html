@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Devotional Artwork Generator</title>
+    <style>
+      /* 
+         * Devotional Artwork Generator
+         * 
+         * This single-file application creates beautiful devotional artwork.
+         * All assets are embedded, so it works completely offline.
+         * 
+         * To customize:
+         * - Edit the CANVAS_WIDTH and CANVAS_HEIGHT constants in JavaScript
+         * - Modify the default colors in the CSS variables
+         * - Adjust font sizes in the renderCanvas function
+         */
+
+      :root {
+        --primary-color: #4a6fa5;
+        --light-bg: #f8f9fa;
+        --border-color: #dee2e6;
+        --text-color: #212529;
+        --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background-color: var(--light-bg);
+        color: var(--text-color);
+        line-height: 1.6;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        color: var(--primary-color);
+        margin-bottom: 10px;
+      }
+
+      .instructions {
+        background-color: #e9f7fe;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+      }
+
+      .app-layout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      .controls-panel {
+        flex: 1;
+        min-width: 300px;
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+        max-height: 85vh;
+        overflow-y: auto;
+      }
+
+      .preview-panel {
+        flex: 1;
+        min-width: 300px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .canvas-container {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+        margin-bottom: 20px;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+      }
+
+      #previewCanvas {
+        max-width: 100%;
+        height: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+      }
+
+      input[type="text"],
+      textarea,
+      select {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 14px;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 80px;
+      }
+
+      .color-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      input[type="color"] {
+        width: 50px;
+        height: 38px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      input[type="range"] {
+        flex: 1;
+      }
+
+      .range-value {
+        min-width: 40px;
+        text-align: center;
+        font-size: 14px;
+      }
+
+      .file-input-wrapper {
+        position: relative;
+        overflow: hidden;
+        display: inline-block;
+        width: 100%;
+      }
+
+      .file-input-wrapper input[type="file"] {
+        position: absolute;
+        left: -9999px;
+      }
+
+      .file-input-label {
+        display: block;
+        padding: 8px 12px;
+        background-color: white;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        cursor: pointer;
+        text-align: center;
+        transition: background-color 0.2s;
+      }
+
+      .file-input-label:hover {
+        background-color: #f1f3f5;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      button {
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s;
+      }
+
+      .btn-primary {
+        background-color: var(--primary-color);
+        color: white;
+        flex: 1;
+      }
+
+      .btn-primary:hover {
+        background-color: #3a5a80;
+      }
+
+      .btn-secondary {
+        background-color: #6c757d;
+        color: white;
+      }
+
+      .btn-secondary:hover {
+        background-color: #5a6268;
+      }
+
+      .radio-group {
+        display: flex;
+        gap: 15px;
+      }
+
+      .radio-option {
+        display: flex;
+        align-items: center;
+      }
+
+      .notification {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        background-color: #28a745;
+        color: white;
+        border-radius: 4px;
+        box-shadow: var(--shadow);
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.3s, transform 0.3s;
+        z-index: 1000;
+      }
+
+      .notification.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .notification.error {
+        background-color: #dc3545;
+      }
+
+      .notification.warning {
+        background-color: #ffc107;
+        color: #212529;
+      }
+
+      .background-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+
+      .background-option {
+        width: 60px;
+        height: 60px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: border-color 0.2s;
+      }
+
+      .background-option:hover {
+        border-color: var(--primary-color);
+      }
+
+      .background-option.selected {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px rgba(74, 111, 165, 0.2);
+      }
+
+      .section-title {
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: var(--primary-color);
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 5px;
+      }
+
+      @media (max-width: 768px) {
+        .app-layout {
+          flex-direction: column;
+        }
+
+        .controls-panel {
+          max-height: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Devotional Artwork Generator</h1>
+        <p>
+          Create beautiful devotional artwork for sharing on social media or
+          printing
+        </p>
+      </header>
+
+      <div class="instructions">
+        <strong>How to use:</strong> Fill in the text fields, select a
+        background or upload your own, adjust the settings, and click "Generate
+        Preview". When you're satisfied with the result, choose a format and
+        click "Download".
+      </div>
+
+      <div class="app-layout">
+        <div class="controls-panel">
+          <div class="section-title">Content</div>
+
+          <div class="form-group">
+            <label for="mainTopic">Main Topic / Brand Title</label>
+            <input
+              type="text"
+              id="mainTopic"
+              value="Living a Christ-Centered Life"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="devotionalTitle">Devotional Title</label>
+            <input
+              type="text"
+              id="devotionalTitle"
+              value="Shining as the Light of Christ"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="scriptureReference">Scripture Reference</label>
+            <input
+              type="text"
+              id="scriptureReference"
+              value="Matthew 5:14-16"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="scriptureText">Scripture Text</label>
+            <textarea id="scriptureText">
+"You are the light of the world—like a city on a hilltop that cannot be hidden. No one lights a lamp and then puts it under a basket. Instead, a lamp is placed on a stand, where it gives light to everyone in the house. In the same way, let your good deeds shine out for all to see, so that everyone will praise your heavenly Father."</textarea
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="explanation">Insight / Explanation</label>
+            <textarea id="explanation">
+Jesus calls us to be lights in this world, illuminating the darkness with His love and truth. As followers of Christ, we carry His light within us, not to be hidden or kept to ourselves, but to be displayed for all to see. This metaphor of light reminds us that our faith should be visible and impactful in our daily lives. When we live out our faith through acts of kindness, words of encouragement, and standing for righteousness, we become beacons that draw others toward God.</textarea
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="prayer">Prayer</label>
+            <textarea id="prayer">
+Dear Lord, help me to shine Your light brightly in this world. May my life reflect Your love and truth in all I do. Use my words and actions to draw others closer to You. Let my good deeds bring glory to Your name and not to myself. Amen.</textarea
+            >
+          </div>
+
+          <div class="section-title">Background</div>
+
+          <div class="form-group">
+            <label>Select a Background</label>
+            <div class="background-options" id="backgroundOptions">
+              <!-- Background options will be generated by JavaScript -->
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="backgroundImage">Or Upload Your Own</label>
+            <div class="file-input-wrapper">
+              <input type="file" id="backgroundImage" accept="image/*" />
+              <label for="backgroundImage" class="file-input-label"
+                >Choose Image</label
+              >
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Background Image Settings</label>
+            <select id="imageFit">
+              <option value="cover">Cover (fills entire canvas)</option>
+              <option value="contain">Contain (fits entire image)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="imageOffset">Vertical Image Offset</label>
+            <div class="color-controls">
+              <input
+                type="range"
+                id="imageOffset"
+                min="-200"
+                max="200"
+                value="0"
+              />
+              <span class="range-value" id="imageOffsetValue">0</span>
+            </div>
+          </div>
+
+          <div class="section-title">Text Styling</div>
+
+          <div class="form-group">
+            <label for="overlayColor">Overlay Color</label>
+            <div class="color-controls">
+              <input type="color" id="overlayColor" value="#ffffff" />
+              <input
+                type="range"
+                id="overlayOpacity"
+                min="0"
+                max="1"
+                step="0.05"
+                value="0.3"
+              />
+              <span class="range-value" id="overlayOpacityValue">0.3</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="textColor">Text Color</label>
+            <input type="color" id="textColor" value="#333333" />
+          </div>
+
+          <div class="form-group">
+            <label for="titleSize">Title Size</label>
+            <div class="color-controls">
+              <input type="range" id="titleSize" min="20" max="50" value="36" />
+              <span class="range-value" id="titleSizeValue">36</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="textScale">Text Scale</label>
+            <div class="color-controls">
+              <input
+                type="range"
+                id="textScale"
+                min="0.8"
+                max="1.2"
+                step="0.05"
+                value="1"
+              />
+              <span class="range-value" id="textScaleValue">1</span>
+            </div>
+          </div>
+
+          <div class="section-title">Export</div>
+
+          <div class="form-group">
+            <label>Download Format</label>
+            <div class="radio-group">
+              <div class="radio-option">
+                <input
+                  type="radio"
+                  id="formatPNG"
+                  name="downloadFormat"
+                  value="png"
+                  checked
+                />
+                <label for="formatPNG">PNG</label>
+              </div>
+              <div class="radio-option">
+                <input
+                  type="radio"
+                  id="formatJPEG"
+                  name="downloadFormat"
+                  value="jpeg"
+                />
+                <label for="formatJPEG">JPEG</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" id="jpegQualityGroup" style="display: none">
+            <label for="jpegQuality">JPEG Quality</label>
+            <div class="color-controls">
+              <input
+                type="range"
+                id="jpegQuality"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value="0.92"
+              />
+              <span class="range-value" id="jpegQualityValue">0.92</span>
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button id="generateBtn" class="btn-primary">
+              Generate Preview
+            </button>
+            <button id="resetBtn" class="btn-secondary">Reset</button>
+          </div>
+
+          <div class="button-group">
+            <button id="downloadBtn" class="btn-primary">Download</button>
+          </div>
+        </div>
+
+        <div class="preview-panel">
+          <div class="canvas-container">
+            <canvas id="previewCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script>
+      /*
+       * Devotional Artwork Generator - JavaScript
+       *
+       * This script handles all the functionality for creating devotional artwork.
+       *
+       * To customize the canvas size, edit these constants:
+       */
+      const CANVAS_WIDTH = 800;
+      const CANVAS_HEIGHT = 1200;
+
+      // DOM elements
+      const previewCanvas = document.getElementById("previewCanvas");
+      const ctx = previewCanvas.getContext("2d");
+
+      // Input elements
+      const mainTopicInput = document.getElementById("mainTopic");
+      const devotionalTitleInput = document.getElementById("devotionalTitle");
+      const scriptureReferenceInput =
+        document.getElementById("scriptureReference");
+      const scriptureTextInput = document.getElementById("scriptureText");
+      const explanationInput = document.getElementById("explanation");
+      const prayerInput = document.getElementById("prayer");
+      const backgroundImageInput = document.getElementById("backgroundImage");
+      const imageFitSelect = document.getElementById("imageFit");
+      const imageOffsetInput = document.getElementById("imageOffset");
+      const imageOffsetValue = document.getElementById("imageOffsetValue");
+      const overlayColorInput = document.getElementById("overlayColor");
+      const overlayOpacityInput = document.getElementById("overlayOpacity");
+      const overlayOpacityValue = document.getElementById(
+        "overlayOpacityValue"
+      );
+      const textColorInput = document.getElementById("textColor");
+      const titleSizeInput = document.getElementById("titleSize");
+      const titleSizeValue = document.getElementById("titleSizeValue");
+      const textScaleInput = document.getElementById("textScale");
+      const textScaleValue = document.getElementById("textScaleValue");
+      const formatPNGInput = document.getElementById("formatPNG");
+      const formatJPEGInput = document.getElementById("formatJPEG");
+      const jpegQualityInput = document.getElementById("jpegQuality");
+      const jpegQualityValue = document.getElementById("jpegQualityValue");
+      const jpegQualityGroup = document.getElementById("jpegQualityGroup");
+      const generateBtn = document.getElementById("generateBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const backgroundOptionsContainer =
+        document.getElementById("backgroundOptions");
+
+      // State
+      let backgroundImage = null;
+      let selectedBackground = null;
+      let isGenerating = false;
+
+      // Default background patterns
+      const defaultBackgrounds = [
+        { id: 0, name: "Sunset", colors: ["#f9d5e5", "#f4a6c7", "#e8719d"] },
+        { id: 1, name: "Ocean", colors: ["#a1c4fd", "#c2e9fb", "#89d4cf"] },
+        { id: 2, name: "Forest", colors: ["#d4fc79", "#96e6a1", "#6ab04c"] },
+        { id: 3, name: "Mountain", colors: ["#8ed1fc", "#0693e3", "#4a5568"] },
+        { id: 4, name: "Desert", colors: ["#ffd89b", "#19547b", "#8b4513"] },
+      ];
+
+      // Initialize
+      function init() {
+        // Set canvas size
+        previewCanvas.width = CANVAS_WIDTH;
+        previewCanvas.height = CANVAS_HEIGHT;
+
+        // Set initial canvas display size (responsive)
+        const maxWidth = window.innerWidth > 768 ? 500 : window.innerWidth - 40;
+        const scale = maxWidth / CANVAS_WIDTH;
+        previewCanvas.style.width = `${CANVAS_WIDTH * scale}px`;
+        previewCanvas.style.height = `${CANVAS_HEIGHT * scale}px`;
+
+        // Create background options
+        createBackgroundOptions();
+
+        // Select first background by default
+        selectBackground(0);
+
+        // Generate initial preview
+        renderCanvas();
+
+        // Event listeners
+        backgroundImageInput.addEventListener("change", handleImageUpload);
+        imageOffsetInput.addEventListener("input", updateRangeValue);
+        overlayOpacityInput.addEventListener("input", updateRangeValue);
+        titleSizeInput.addEventListener("input", updateRangeValue);
+        textScaleInput.addEventListener("input", updateRangeValue);
+        jpegQualityInput.addEventListener("input", updateRangeValue);
+        formatJPEGInput.addEventListener("change", toggleJPEGQuality);
+        generateBtn.addEventListener("click", generatePreview);
+        resetBtn.addEventListener("click", resetForm);
+        downloadBtn.addEventListener("click", downloadImage);
+
+        // Auto-update range value displays
+        updateRangeValue();
+      }
+
+      // Create background options
+      function createBackgroundOptions() {
+        defaultBackgrounds.forEach((bg) => {
+          const option = document.createElement("div");
+          option.className = "background-option";
+          option.dataset.id = bg.id;
+          option.title = bg.name;
+
+          // Create a mini canvas for the preview
+          const miniCanvas = document.createElement("canvas");
+          miniCanvas.width = 60;
+          miniCanvas.height = 60;
+          const miniCtx = miniCanvas.getContext("2d");
+
+          // Draw gradient
+          const gradient = miniCtx.createLinearGradient(0, 0, 60, 60);
+          bg.colors.forEach((color, index) => {
+            gradient.addColorStop(index / (bg.colors.length - 1), color);
+          });
+
+          miniCtx.fillStyle = gradient;
+          miniCtx.fillRect(0, 0, 60, 60);
+
+          option.appendChild(miniCanvas);
+          option.addEventListener("click", () => selectBackground(bg.id));
+
+          backgroundOptionsContainer.appendChild(option);
+        });
+      }
+
+      // Select a background
+      function selectBackground(id) {
+        // Update UI
+        document.querySelectorAll(".background-option").forEach((option) => {
+          option.classList.remove("selected");
+        });
+
+        const selectedOption = document.querySelector(
+          `.background-option[data-id="${id}"]`
+        );
+        if (selectedOption) {
+          selectedOption.classList.add("selected");
+        }
+
+        // Update state
+        selectedBackground = defaultBackgrounds.find((bg) => bg.id === id);
+        backgroundImage = null;
+
+        // Update file input label
+        document.querySelector(".file-input-label").textContent =
+          "Choose Image";
+
+        // Regenerate canvas
+        renderCanvas();
+      }
+
+      // Handle image upload
+      function handleImageUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function (event) {
+          const img = new Image();
+          img.onload = function () {
+            backgroundImage = img;
+            selectedBackground = null;
+
+            // Update UI
+            document
+              .querySelectorAll(".background-option")
+              .forEach((option) => {
+                option.classList.remove("selected");
+              });
+
+            renderCanvas();
+            showNotification("Background image loaded successfully");
+          };
+          img.onerror = function () {
+            showNotification(
+              "Error loading image. Please try another file.",
+              "error"
+            );
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+
+        // Update file input label
+        const label = document.querySelector(".file-input-label");
+        label.textContent = file.name;
+      }
+
+      // Update range value displays
+      function updateRangeValue() {
+        imageOffsetValue.textContent = imageOffsetInput.value;
+        overlayOpacityValue.textContent = overlayOpacityInput.value;
+        titleSizeValue.textContent = titleSizeInput.value;
+        textScaleValue.textContent = textScaleInput.value;
+        jpegQualityValue.textContent = jpegQualityInput.value;
+      }
+
+      // Toggle JPEG quality input
+      function toggleJPEGQuality() {
+        jpegQualityGroup.style.display = formatJPEGInput.checked
+          ? "block"
+          : "none";
+      }
+
+      // Generate preview
+      function generatePreview() {
+        if (isGenerating) return;
+        isGenerating = true;
+
+        renderCanvas();
+        showNotification("Preview generated successfully");
+
+        setTimeout(() => {
+          isGenerating = false;
+        }, 500);
+      }
+
+      // Reset form
+      function resetForm() {
+        if (confirm("Are you sure you want to reset all fields?")) {
+          document.getElementById("mainTopic").value =
+            "Living a Christ-Centered Life";
+          document.getElementById("devotionalTitle").value =
+            "Shining as the Light of Christ";
+          document.getElementById("scriptureReference").value =
+            "Matthew 5:14-16";
+          document.getElementById("scriptureText").value =
+            '"You are the light of the world—like a city on a hilltop that cannot be hidden. No one lights a lamp and then puts it under a basket. Instead, a lamp is placed on a stand, where it gives light to everyone in the house. In the same way, let your good deeds shine out for all to see, so that everyone will praise your heavenly Father."';
+          document.getElementById("explanation").value =
+            "Jesus calls us to be lights in this world, illuminating the darkness with His love and truth. As followers of Christ, we carry His light within us, not to be hidden or kept to ourselves, but to be displayed for all to see. This metaphor of light reminds us that our faith should be visible and impactful in our daily lives. When we live out our faith through acts of kindness, words of encouragement, and standing for righteousness, we become beacons that draw others toward God.";
+          document.getElementById("prayer").value =
+            "Dear Lord, help me to shine Your light brightly in this world. May my life reflect Your love and truth in all I do. Use my words and actions to draw others closer to You. Let my good deeds bring glory to Your name and not to myself. Amen.";
+
+          document.getElementById("imageFit").value = "cover";
+          document.getElementById("imageOffset").value = 0;
+          document.getElementById("overlayColor").value = "#ffffff";
+          document.getElementById("overlayOpacity").value = 0.3;
+          document.getElementById("textColor").value = "#333333";
+          document.getElementById("titleSize").value = 36;
+          document.getElementById("textScale").value = 1;
+          document.getElementById("formatPNG").checked = true;
+          document.getElementById("jpegQuality").value = 0.92;
+
+          document.querySelector(".file-input-label").textContent =
+            "Choose Image";
+          backgroundImage = null;
+
+          // Select first background
+          selectBackground(0);
+
+          updateRangeValue();
+          toggleJPEGQuality();
+
+          showNotification("Form reset to defaults");
+        }
+      }
+
+      // Download image
+      function downloadImage() {
+        const format = formatPNGInput.checked ? "png" : "jpeg";
+        const quality =
+          format === "jpeg" ? parseFloat(jpegQualityInput.value) : undefined;
+
+        const dataURL = previewCanvas.toDataURL(`image/${format}`, quality);
+
+        const link = document.createElement("a");
+        link.href = dataURL;
+        link.download = `devotional-${new Date()
+          .toISOString()
+          .slice(0, 10)}.${format}`;
+        link.click();
+
+        showNotification(`Image downloaded as ${format.toUpperCase()}`);
+      }
+
+      // Show notification
+      function showNotification(message, type = "success") {
+        const notification = document.getElementById("notification");
+        notification.textContent = message;
+        notification.className = "notification show";
+
+        if (type === "error") {
+          notification.classList.add("error");
+        } else if (type === "warning") {
+          notification.classList.add("warning");
+        }
+
+        setTimeout(() => {
+          notification.classList.remove("show");
+        }, 3000);
+      }
+
+      // Render canvas
+      function renderCanvas() {
+        // Clear canvas
+        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Draw background
+        if (backgroundImage) {
+          drawBackgroundImage();
+        } else if (selectedBackground) {
+          drawDefaultBackground();
+        } else {
+          // Fallback gradient
+          const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+          gradient.addColorStop(0, "#f5f7fa");
+          gradient.addColorStop(1, "#e4e8f0");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        }
+
+        // Draw overlay
+        drawOverlay();
+
+        // Draw decorative elements
+        drawDecorativeElements();
+
+        // Draw text
+        drawText();
+      }
+
+      // Draw background image
+      function drawBackgroundImage() {
+        const imageFit = imageFitSelect.value;
+        const offset = parseInt(imageOffsetInput.value);
+
+        ctx.save();
+
+        if (imageFit === "cover") {
+          // Scale image to cover canvas
+          const scale = Math.max(
+            CANVAS_WIDTH / backgroundImage.width,
+            CANVAS_HEIGHT / backgroundImage.height
+          );
+
+          const width = backgroundImage.width * scale;
+          const height = backgroundImage.height * scale;
+          const x = (CANVAS_WIDTH - width) / 2;
+          const y = (CANVAS_HEIGHT - height) / 2 + offset;
+
+          ctx.drawImage(backgroundImage, x, y, width, height);
+        } else {
+          // Scale image to fit within canvas
+          const scale = Math.min(
+            CANVAS_WIDTH / backgroundImage.width,
+            CANVAS_HEIGHT / backgroundImage.height
+          );
+
+          const width = backgroundImage.width * scale;
+          const height = backgroundImage.height * scale;
+          const x = (CANVAS_WIDTH - width) / 2;
+          const y = (CANVAS_HEIGHT - height) / 2 + offset;
+
+          ctx.drawImage(backgroundImage, x, y, width, height);
+        }
+
+        ctx.restore();
+      }
+
+      // Draw default background
+      function drawDefaultBackground() {
+        if (!selectedBackground) return;
+
+        // Create gradient based on selected background
+        const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+        selectedBackground.colors.forEach((color, index) => {
+          gradient.addColorStop(
+            index / (selectedBackground.colors.length - 1),
+            color
+          );
+        });
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Add subtle pattern
+        ctx.save();
+        ctx.globalAlpha = 0.05;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+
+        // Draw grid pattern
+        for (let x = 0; x < CANVAS_WIDTH; x += 20) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, CANVAS_HEIGHT);
+          ctx.stroke();
+        }
+
+        for (let y = 0; y < CANVAS_HEIGHT; y += 20) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(CANVAS_WIDTH, y);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      // Draw overlay
+      function drawOverlay() {
+        const color = overlayColorInput.value;
+        const opacity = parseFloat(overlayOpacityInput.value);
+
+        // Convert hex to rgba
+        const r = parseInt(color.substr(1, 2), 16);
+        const g = parseInt(color.substr(3, 2), 16);
+        const b = parseInt(color.substr(5, 2), 16);
+
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      }
+
+      // Draw decorative elements
+      function drawDecorativeElements() {
+        ctx.save();
+
+        // Top-left corner decoration
+        ctx.fillStyle = overlayColorInput.value;
+        ctx.globalAlpha = 0.1;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(200, 0);
+        ctx.quadraticCurveTo(0, 0, 0, 200);
+        ctx.closePath();
+        ctx.fill();
+
+        // Bottom-right corner decoration
+        ctx.beginPath();
+        ctx.moveTo(CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.lineTo(CANVAS_WIDTH - 200, CANVAS_HEIGHT);
+        ctx.quadraticCurveTo(
+          CANVAS_WIDTH,
+          CANVAS_HEIGHT,
+          CANVAS_WIDTH,
+          CANVAS_HEIGHT - 200
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // Small leaf shapes
+        ctx.globalAlpha = 0.15;
+        drawLeaf(100, 100, 40, "#4a6fa5");
+        drawLeaf(CANVAS_WIDTH - 100, CANVAS_HEIGHT - 100, 40, "#4a6fa5");
+
+        ctx.restore();
+      }
+
+      // Draw a leaf shape
+      function drawLeaf(x, y, size, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.translate(x, y);
+        ctx.rotate(Math.PI / 4);
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(size, -size / 2, size, 0);
+        ctx.quadraticCurveTo(size / 2, size / 2, 0, size);
+        ctx.quadraticCurveTo(-size / 2, size / 2, -size, 0);
+        ctx.quadraticCurveTo(-size, -size / 2, 0, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // Draw text
+      function drawText() {
+        const textColor = textColorInput.value;
+        const titleSize = parseInt(titleSizeInput.value);
+        const textScale = parseFloat(textScaleInput.value);
+
+        // Apply text scale
+        const scaledTitleSize = titleSize * textScale;
+        const scaledBodySize = 22 * textScale;
+        const scaledSmallSize = 18 * textScale;
+
+        ctx.fillStyle = textColor;
+        ctx.textAlign = "center";
+
+        // Calculate available space
+        const padding = 80;
+        const contentWidth = CANVAS_WIDTH - padding * 2;
+        let currentY = padding;
+
+        // Draw main topic
+        ctx.font = `bold ${
+          scaledTitleSize * 0.6
+        }px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+        ctx.fillText(mainTopicInput.value, CANVAS_WIDTH / 2, currentY);
+        currentY += scaledTitleSize * 0.8;
+
+        // Draw devotional title
+        ctx.font = `bold ${scaledTitleSize}px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+
+        // Auto-scale title if too long
+        const titleLines = wrapText(
+          ctx,
+          devotionalTitleInput.value,
+          CANVAS_WIDTH - padding * 2,
+          scaledTitleSize * 1.2
+        );
+        if (titleLines.length > 2) {
+          // Scale down font size
+          const scaledSize = Math.floor(
+            scaledTitleSize * (2 / titleLines.length)
+          );
+          ctx.font = `bold ${scaledSize}px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+        }
+
+        // Draw title with proper wrapping
+        const titleLinesFinal = wrapText(
+          ctx,
+          devotionalTitleInput.value,
+          CANVAS_WIDTH - padding * 2,
+          scaledTitleSize * 1.2
+        );
+        for (let i = 0; i < Math.min(titleLinesFinal.length, 2); i++) {
+          ctx.fillText(titleLinesFinal[i], CANVAS_WIDTH / 2, currentY);
+          currentY += scaledTitleSize * 1.2;
+        }
+
+        // Draw divider line
+        currentY += 20;
+        ctx.strokeStyle = textColor;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(CANVAS_WIDTH / 2 - 100, currentY);
+        ctx.lineTo(CANVAS_WIDTH / 2 + 100, currentY);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        currentY += 30;
+
+        // Calculate remaining space
+        const remainingHeight = CANVAS_HEIGHT - currentY - padding;
+        const sectionHeight = remainingHeight / 3; // Divide into 3 sections
+
+        // Draw scripture section
+        drawSection(
+          "SCRIPTURE",
+          scriptureReferenceInput.value,
+          scriptureTextInput.value,
+          currentY,
+          sectionHeight,
+          scaledBodySize,
+          scaledSmallSize,
+          contentWidth,
+          padding
+        );
+        currentY += sectionHeight + 30;
+
+        // Draw insight section
+        drawSection(
+          "INSIGHT",
+          "",
+          explanationInput.value,
+          currentY,
+          sectionHeight,
+          scaledBodySize,
+          scaledSmallSize,
+          contentWidth,
+          padding
+        );
+        currentY += sectionHeight + 30;
+
+        // Draw prayer section
+        drawSection(
+          "PRAYER",
+          "",
+          prayerInput.value,
+          currentY,
+          sectionHeight,
+          scaledBodySize,
+          scaledSmallSize,
+          contentWidth,
+          padding
+        );
+      }
+
+      // Draw a text section
+      function drawSection(
+        sectionTitle,
+        reference,
+        content,
+        startY,
+        maxHeight,
+        bodySize,
+        smallSize,
+        contentWidth,
+        padding
+      ) {
+        ctx.save();
+
+        // Draw section title
+        ctx.fillStyle = textColorInput.value;
+        ctx.font = `bold ${
+          smallSize * 1.2
+        }px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(sectionTitle, CANVAS_WIDTH / 2, startY);
+
+        let currentY = startY + smallSize * 1.5;
+
+        // Draw reference if provided
+        if (reference) {
+          ctx.font = `bold ${smallSize}px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+          ctx.fillText(reference, CANVAS_WIDTH / 2, currentY);
+          currentY += smallSize * 1.2;
+        }
+
+        // Draw content
+        ctx.font =
+          sectionTitle === "SCRIPTURE"
+            ? `italic ${bodySize}px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`
+            : `${bodySize}px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+
+        ctx.textAlign = "left";
+
+        // Calculate available height for content
+        const availableHeight = maxHeight - (currentY - startY) - smallSize;
+        const lineHeight = bodySize * 1.2;
+        const maxLines = Math.floor(availableHeight / lineHeight);
+
+        // Wrap text and limit lines
+        const lines = wrapText(ctx, content, contentWidth, lineHeight);
+        const limitedLines = lines.slice(0, maxLines);
+
+        // Draw lines
+        for (let i = 0; i < limitedLines.length; i++) {
+          ctx.fillText(limitedLines[i], padding, currentY);
+          currentY += lineHeight;
+        }
+
+        // Check if text was truncated
+        if (lines.length > maxLines) {
+          ctx.restore();
+          showNotification(
+            `${sectionTitle} text is too long and has been truncated`,
+            "warning"
+          );
+          return;
+        }
+
+        ctx.restore();
+      }
+
+      // Wrap text to fit within a specified width
+      function wrapText(context, text, maxWidth, lineHeight) {
+        const words = text.split(" ");
+        const lines = [];
+        let currentLine = "";
+
+        for (let i = 0; i < words.length; i++) {
+          const word = words[i];
+          const width = context.measureText(
+            currentLine + (currentLine ? " " : "") + word
+          ).width;
+
+          if (width > maxWidth && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = currentLine ? currentLine + " " + word : word;
+          }
+        }
+
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+
+        return lines;
+      }
+
+      // Initialize the application
+      init();
+    </script>
+  </body>
+</html>
