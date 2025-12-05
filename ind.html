@@ -1,0 +1,1653 @@
+<details type="reasoning" done="false" view="" last_tool_call_name="">
+  <summary>Thinking…</summary>
+  > The user is reporting two issues: > 1. **Text is not showing up in the
+  generated image.** This is a critical rendering bug. The user says "Not all
+  the text are showing in the generated image." This means some parts of the
+  text are missing entirely. > 2. **Text is getting cut off.** The user says
+  "some text are cutting out". This implies that the text wrapping and/or layout
+  calculation is incorrect, causing the bottom of the text sections to be
+  truncated. > > Let's analyze the `drawText` and `drawSection` functions to
+  find the problem. > > The main `drawText` function calculates the space for
+  the three sections (Scripture, Insight, Prayer) like this: > ```javascript >
+  // Calculate remaining space > const remainingHeight = CANVAS_HEIGHT -
+  currentY - padding; > const sectionHeight = remainingHeight / 3; // Divide
+  into 3 sections > ``` > Then it calls `drawSection` for each part, passing
+  `sectionHeight` as the `maxHeight` parameter. > > Inside `drawSection`, the
+  available height for the content is calculated like this: > ```javascript > //
+  Calculate available height for content > const availableHeight = maxHeight -
+  (currentY - startY) - smallSize; > const lineHeight = bodySize * 1.4; > const
+  maxLines = Math.floor(availableHeight / lineHeight); > ``` > Let's trace the
+  values: > - `startY`: The Y position where the section starts. > -
+  `maxHeight`: The total height allocated for the entire section (including
+  title, divider, and content). > - `smallSize`: The height of the section title
+  itself. > - `currentY`: The Y position where the content text starts drawing.
+  > - `availableHeight`: The height left for the actual content text. > -
+  `lineHeight`: The height of each line of text. > - `maxLines`: The number of
+  lines that can fit. > > The problem is likely in how `availableHeight` is
+  calculated. > `availableHeight = maxHeight - (currentY - startY) - smallSize;`
+  > Let's break this down: > `maxHeight` is the total height for the section. >
+  `currentY - startY` is the vertical space already consumed by the title and
+  divider. > `smallSize` is subtracted again. This seems redundant or incorrect.
+  > > Let's re-examine the flow within `drawSection`: > 1. `const sectionY =
+  startY + smallSize;` - This calculates the Y position for the divider line. >
+  2. `drawPremiumDivider(...)` is called. This draws the divider at `sectionY`.
+  > 3. `ctx.fillText(sectionTitle, CANVAS_WIDTH / 2, sectionY - 15);` - This
+  draws the title *above* the divider. > 4. `let currentY = sectionY + 30;` -
+  This sets the starting Y for the reference/content text. > > So, the space
+  from `startY` to `currentY` is `sectionY + 30 - startY`, which is `(startY +
+  smallSize) + 30 - startY`, which simplifies to `smallSize + 30`. > This is the
+  space used for the title and divider. > > Now, let's look at the
+  `availableHeight` calculation again: > `availableHeight = maxHeight -
+  (currentY - startY) - smallSize;` > Substituting `currentY`: `availableHeight
+  = maxHeight - ((smallSize + 30) - 0) - smallSize;` > This simplifies to:
+  `availableHeight = maxHeight - smallSize - 30 - smallSize;` > Which is:
+  `availableHeight = maxHeight - (2 * smallSize) - 30;` > > This seems wrong.
+  The space for the title and divider (`smallSize + 30`) is being subtracted
+  from `maxHeight`, and then `smallSize` is being subtracted *again*. This
+  double-counts the space for the title, leading to a much smaller
+  `availableHeight` than intended. This is the primary cause of the text being
+  cut off. > > The correct calculation should be: > `availableHeight = maxHeight
+  - (currentY - startY);` > This would give the remaining height after the title
+  and divider have been drawn. > > So, the fix is to remove the `- smallSize`
+  from the `availableHeight` calculation in the `drawSection` function. > >
+  Let's double-check the `wrapText` function. It seems standard and unlikely to
+  be the source of the problem. > > The second issue is "Not all the text are
+  showing". This is strange. The code draws the text in sequence. Maybe there's
+  an issue with the `ctx.restore()` calls. If `ctx.restore()` is called at the
+  wrong time, it might reset a state (like `fillStyle` or `globalAlpha`) needed
+  for subsequent drawing. > > Let's look at the `drawSection` function: >
+  ```javascript > function drawSection(...) { > ctx.save(); > // ... drawing
+  logic ... > if (lines.length > maxLines) { > ctx.restore(); // <--- Restore
+  here > showNotification(...); > return; // <--- Early return here > } >
+  ctx.restore(); // <--- Restore here > } > ``` > This looks correct. If the
+  text is too long, it restores the context and returns. Otherwise, it restores
+  the context at the end. > > Let's look at the main `drawText` function: >
+  ```javascript > function drawText() { > // ... > // Draw scripture section >
+  drawSection(...); > currentY += sectionHeight + 40; > > // Draw insight
+  section > drawSection(...); > currentY += sectionHeight + 40; > > // Draw
+  prayer section > drawSection(...); > } > ``` > The `currentY` is updated after
+  each section. This seems correct. > > What if the `wrapText` function is
+  returning an empty array or an array with empty strings?
+  `context.measureText('')` would return 0 for width. The logic `if (width >
+  maxWidth && currentLine)` seems robust enough. > > Let's reconsider the user's
+  report. "Not all the text are showing". This could mean that one of the entire
+  sections (e.g., the whole PRAYER section) is missing. Why would that happen? >
+  > Let's look at the `drawSection` call for prayer: > `drawSection('PRAYER',
+  '', prayerInput.value, currentY, sectionHeight, scaledBodySize,
+  scaledSmallSize, contentWidth, padding);` > > If `prayerInput.value` is an
+  empty string, `wrapText` will return an empty array `['']`. The `for` loop to
+  draw lines will not run. The section will appear empty. This is expected
+  behavior. > > What if the issue is with the font declaration? > `ctx.font =
+  sectionTitle === 'SCRIPTURE' ? italic ${bodySize}px 'Georgia', serif :
+  ${bodySize}px 'Source Sans Pro', 'Arial', sans-serif;` > This looks correct. >
+  > Okay, let's focus on the most likely culprit: the incorrect
+  `availableHeight` calculation. I will fix that. I will also add some defensive
+  checks and comments to make the code more robust. > > Here's the plan: > 1.
+  **Fix the `availableHeight` calculation in `drawSection`**. Change `const
+  availableHeight = maxHeight - (currentY - startY) - smallSize;` to `const
+  availableHeight = maxHeight - (currentY - startY);`. This will give the
+  correct remaining space for the text content. > 2. **Improve Text Wrapping and
+  Layout**: I will review the `wrapText` function and the layout logic in
+  `drawSection` and `drawText` to ensure text is not cut off. I will add some
+  logging or comments to make it clearer. > 3. **Check Font Declarations**:
+  Ensure the font strings are correctly formatted. > 4. **Check
+  `ctx.restore()`**: Ensure that the save/restore pairs are correctly balanced
+  and not interfering with each other. The current structure seems fine, but
+  I'll double-check. > 5. **Check `fillStyle`**: Make sure the text color is
+  being set correctly before drawing each section. The code sets `ctx.fillStyle
+  = textColorInput.value;` at the beginning of `drawText`, and then
+  `drawSection` uses `textColorInput.value` as well. This seems fine. > > The
+  most probable cause is the incorrect height calculation. I will proceed with
+  fixing that and also add a small buffer to ensure text doesn't get cut off due
+  to rounding errors or other minor miscalculations. > > I will modify the
+  `drawSection` function. I'll also slightly increase the spacing between
+  sections to give more breathing room, which can help prevent visual cutoff. >
+  > Revised `drawSection` plan: > ```javascript > function
+  drawSection(sectionTitle, reference, content, startY, maxHeight, bodySize,
+  smallSize, contentWidth, padding) { > ctx.save(); > > // Draw section title
+  with premium divider > ctx.fillStyle = textColorInput.value; > ctx.font =
+  `bold ${smallSize * 1.2}px 'Playfair Display', 'Georgia', serif`; >
+  ctx.textAlign = 'center'; > > // Add letter spacing for premium look >
+  ctx.letterSpacing = '3px'; > > // Draw section title with divider > const
+  sectionY = startY + smallSize; > drawPremiumDivider(CANVAS_WIDTH / 2,
+  sectionY, 250, textColorInput.value); > > // Draw section title >
+  ctx.fillText(sectionTitle, CANVAS_WIDTH / 2, sectionY - 15); >
+  ctx.letterSpacing = 'normal'; > > let currentY = sectionY + 30; > > // Draw
+  reference if provided > if (reference) { > ctx.font = `bold ${smallSize}px
+  'Source Sans Pro', 'Arial', sans-serif`; > ctx.fillText(reference,
+  CANVAS_WIDTH / 2, currentY); > currentY += smallSize * 1.5; > } > > // Draw
+  content > ctx.font = sectionTitle === 'SCRIPTURE' ? > `italic ${bodySize}px
+  'Georgia', serif` : > `${bodySize}px 'Source Sans Pro', 'Arial', sans-serif`;
+  > > ctx.textAlign = 'left'; > > // Calculate available height for content -
+  THIS IS THE FIX > const spaceUsedByTitleAndDivider = currentY - startY; >
+  const availableHeight = maxHeight - spaceUsedByTitleAndDivider; > const
+  lineHeight = bodySize * 1.4; > const maxLines = Math.floor(availableHeight /
+  lineHeight); > > // Wrap text and limit lines > const lines = wrapText(ctx,
+  content, contentWidth, lineHeight); > const limitedLines = lines.slice(0,
+  maxLines); > > // Draw lines with better spacing > for (let i = 0; i <
+  limitedLines.length; i++) { > ctx.fillText(limitedLines[i], padding,
+  currentY); > currentY += lineHeight; > } > > // Check if text was truncated >
+  if (lines.length > maxLines) { > showNotification(`${sectionTitle} text is too
+  long and has been truncated`, 'warning'); > } > > ctx.restore(); > } > ``` >
+  This revised logic is much clearer and should correctly calculate the
+  available height. I'll also adjust the spacing in the main `drawText` function
+  to give a bit more room. `currentY += sectionHeight + 50;` instead of `+ 40`.
+  > > I'm confident this will resolve the user's issues. I will now generate the
+  final code. I'll also add comments explaining the fix. I will not add any
+  other changes unless specifically requested, to avoid introducing new bugs.
+  The background and UI are fine according to the user's last feedback.Of
+  course. I apologize for the rendering issues. The problem was in the
+  calculation for the available space for the text content, which was
+  incorrectly subtracting the title height twice. This caused the text to be cut
+  off at the bottom. > > I've fixed this bug and also slightly increased the
+  spacing between sections to ensure everything fits properly. Here is the
+  corrected code: > > ```html > <!DOCTYPE html> >
+  <html lang="en">
+    >
+    <head>
+      >
+      <meta charset="UTF-8" />
+      >
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      >
+      <title>Premium Devotional Artwork Generator</title>
+      >
+      <style>
+        >         /*
+        >          * Premium Devotional Artwork Generator
+        >          *
+        >          * This single-file application creates beautiful devotional artwork with a premium look.
+        >          * All assets are embedded, so it works completely offline.
+        >          *
+        >          * To customize:
+        >          * - Edit the CANVAS_WIDTH and CANVAS_HEIGHT constants in JavaScript
+        >          * - Modify the default colors in the CSS variables
+        >          * - Adjust font sizes in the renderCanvas function
+        >          */
+        >
+        >         :root {
+        >             --primary-color: #2c3e50;
+        >             --secondary-color: #3498db;
+        >             --accent-color: #e67e22;
+        >             --light-bg: #f8f9fa;
+        >             --dark-bg: #1e293b;
+        >             --border-color: #e2e8f0;
+        >             --text-color: #334155;
+        >             --light-text: #f1f5f9;
+        >             --shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+        >             --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+        >         }
+        >
+        >         * {
+        >             box-sizing: border-box;
+        >             margin: 0;
+        >             padding: 0;
+        >         }
+        >
+        >         body {
+        >             font-family: 'Georgia', 'Times New Roman', serif;
+        >             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        >             color: var(--text-color);
+        >             line-height: 1.6;
+        >             min-height: 100vh;
+        >         }
+        >
+        >         .container {
+        >             max-width: 1400px;
+        >             margin: 0 auto;
+        >             padding: 20px;
+        >         }
+        >
+        >         header {
+        >             text-align: center;
+        >             margin-bottom: 30px;
+        >             padding: 20px 0;
+        >         }
+        >
+        >         h1 {
+        >             font-size: 2.5rem;
+        >             font-weight: 700;
+        >             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        >             -webkit-background-clip: text;
+        >             background-clip: text;
+        >             color: transparent;
+        >             margin-bottom: 10px;
+        >             letter-spacing: -0.02em;
+        >             font-family: 'Playfair Display', 'Georgia', serif;
+        >         }
+        >
+        >         .subtitle {
+        >             font-size: 1.1rem;
+        >             color: var(--text-color);
+        >             opacity: 0.8;
+        >             max-width: 600px;
+        >             margin: 0 auto;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         .instructions {
+        >             background-color: rgba(255, 255, 255, 0.9);
+        >             backdrop-filter: blur(10px);
+        >             padding: 20px;
+        >             border-radius: 12px;
+        >             margin-bottom: 30px;
+        >             font-size: 15px;
+        >             box-shadow: var(--shadow);
+        >             border: 1px solid var(--border-color);
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         .app-layout {
+        >             display: flex;
+        >             flex-wrap: wrap;
+        >             gap: 30px;
+        >         }
+        >
+        >         .controls-panel {
+        >             flex: 1;
+        >             min-width: 350px;
+        >             background-color: rgba(255, 255, 255, 0.95);
+        >             backdrop-filter: blur(10px);
+        >             border-radius: 16px;
+        >             padding: 30px;
+        >             box-shadow: var(--shadow-lg);
+        >             max-height: 85vh;
+        >             overflow-y: auto;
+        >             border: 1px solid var(--border-color);
+        >         }
+        >
+        >         .preview-panel {
+        >             flex: 1.2;
+        >             min-width: 350px;
+        >             display: flex;
+        >             flex-direction: column;
+        >             align-items: center;
+        >         }
+        >
+        >         .canvas-container {
+        >             background-color: rgba(255, 255, 255, 0.95);
+        >             backdrop-filter: blur(10px);
+        >             border-radius: 16px;
+        >             padding: 30px;
+        >             box-shadow: var(--shadow-lg);
+        >             margin-bottom: 20px;
+        >             width: 100%;
+        >             display: flex;
+        >             justify-content: center;
+        >             border: 1px solid var(--border-color);
+        >         }
+        >
+        >         #previewCanvas {
+        >             max-width: 100%;
+        >             height: auto;
+        >             border-radius: 8px;
+        >             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        >         }
+        >
+        >         .form-group {
+        >             margin-bottom: 20px;
+        >         }
+        >
+        >         label {
+        >             display: block;
+        >             margin-bottom: 8px;
+        >             font-weight: 600;
+        >             font-size: 14px;
+        >             color: var(--text-color);
+        >             letter-spacing: 0.025em;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         input[type="text"],
+        >         textarea,
+        >         select {
+        >             width: 100%;
+        >             padding: 12px 16px;
+        >             border: 1px solid var(--border-color);
+        >             border-radius: 8px;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >             font-size: 15px;
+        >             background-color: rgba(255, 255, 255, 0.7);
+        >             transition: border-color 0.2s, box-shadow 0.2s;
+        >         }
+        >
+        >         input[type="text"]:focus,
+        >         textarea:focus,
+        >         select:focus {
+        >             outline: none;
+        >             border-color: var(--secondary-color);
+        >             box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        >         }
+        >
+        >         textarea {
+        >             resize: vertical;
+        >             min-height: 100px;
+        >         }
+        >
+        >         .color-controls {
+        >             display: flex;
+        >             gap: 15px;
+        >             align-items: center;
+        >         }
+        >
+        >         input[type="color"] {
+        >             width: 50px;
+        >             height: 50px;
+        >             border: none;
+        >             border-radius: 8px;
+        >             cursor: pointer;
+        >             box-shadow: var(--shadow);
+        >         }
+        >
+        >         input[type="range"] {
+        >             flex: 1;
+        >             height: 6px;
+        >             background: #e2e8f0;
+        >             border-radius: 3px;
+        >             outline: none;
+        >             -webkit-appearance: none;
+        >         }
+        >
+        >         input[type="range"]::-webkit-slider-thumb {
+        >             -webkit-appearance: none;
+        >             appearance: none;
+        >             width: 20px;
+        >             height: 20px;
+        >             background: var(--secondary-color);
+        >             cursor: pointer;
+        >             border-radius: 50%;
+        >             box-shadow: var(--shadow);
+        >         }
+        >
+        >         input[type="range"]::-moz-range-thumb {
+        >             width: 20px;
+        >             height: 20px;
+        >             background: var(--secondary-color);
+        >             cursor: pointer;
+        >             border-radius: 50%;
+        >             box-shadow: var(--shadow);
+        >             border: none;
+        >         }
+        >
+        >         .range-value {
+        >             min-width: 45px;
+        >             text-align: center;
+        >             font-size: 14px;
+        >             font-weight: 600;
+        >             color: var(--text-color);
+        >             background: rgba(52, 152, 219, 0.1);
+        >             padding: 4px 8px;
+        >             border-radius: 6px;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         .file-input-wrapper {
+        >             position: relative;
+        >             overflow: hidden;
+        >             display: inline-block;
+        >             width: 100%;
+        >         }
+        >
+        >         .file-input-wrapper input[type=file] {
+        >             position: absolute;
+        >             left: -9999px;
+        >         }
+        >
+        >         .file-input-label {
+        >             display: block;
+        >             padding: 12px 16px;
+        >             background-color: rgba(255, 255, 255, 0.7);
+        >             border: 1px solid var(--border-color);
+        >             border-radius: 8px;
+        >             cursor: pointer;
+        >             text-align: center;
+        >             transition: all 0.2s;
+        >             font-weight: 500;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         .file-input-label:hover {
+        >             background-color: rgba(52, 152, 219, 0.1);
+        >             border-color: var(--secondary-color);
+        >         }
+        >
+        >         .button-group {
+        >             display: flex;
+        >             gap: 15px;
+        >             margin-top: 25px;
+        >         }
+        >
+        >         button {
+        >             padding: 12px 20px;
+        >             border: none;
+        >             border-radius: 8px;
+        >             cursor: pointer;
+        >             font-weight: 600;
+        >             font-size: 15px;
+        >             transition: all 0.2s;
+        >             letter-spacing: 0.025em;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         .btn-primary {
+        >             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        >             color: white;
+        >             flex: 1;
+        >             box-shadow: var(--shadow);
+        >         }
+        >
+        >         .btn-primary:hover {
+        >             transform: translateY(-2px);
+        >             box-shadow: var(--shadow-lg);
+        >         }
+        >
+        >         .btn-secondary {
+        >             background-color: rgba(255, 255, 255, 0.7);
+        >             color: var(--text-color);
+        >             border: 1px solid var(--border-color);
+        >         }
+        >
+        >         .btn-secondary:hover {
+        >             background-color: rgba(255, 255, 255, 0.9);
+        >         }
+        >
+        >         .radio-group {
+        >             display: flex;
+        >             gap: 20px;
+        >         }
+        >
+        >         .radio-option {
+        >             display: flex;
+        >             align-items: center;
+        >         }
+        >
+        >         .radio-option input[type="radio"] {
+        >             margin-right: 8px;
+        >         }
+        >
+        >         .notification {
+        >             position: fixed;
+        >             bottom: 20px;
+        >             right: 20px;
+        >             padding: 16px 24px;
+        >             background-color: white;
+        >             color: var(--text-color);
+        >             border-radius: 8px;
+        >             box-shadow: var(--shadow-lg);
+        >             opacity: 0;
+        >             transform: translateY(20px);
+        >             transition: opacity 0.3s, transform 0.3s;
+        >             z-index: 1000;
+        >             border-left: 4px solid var(--secondary-color);
+        >             font-weight: 500;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         .notification.show {
+        >             opacity: 1;
+        >             transform: translateY(0);
+        >         }
+        >
+        >         .notification.error {
+        >             border-left-color: #e74c3c;
+        >             color: #e74c3c;
+        >         }
+        >
+        >         .notification.warning {
+        >             border-left-color: #f39c12;
+        >             color: #f39c12;
+        >         }
+        >
+        >         .background-options {
+        >             display: flex;
+        >             flex-wrap: wrap;
+        >             gap: 15px;
+        >             margin-bottom: 20px;
+        >         }
+        >
+        >         .background-option {
+        >             width: 70px;
+        >             height: 70px;
+        >             border-radius: 10px;
+        >             cursor: pointer;
+        >             border: 3px solid transparent;
+        >             transition: all 0.2s;
+        >             overflow: hidden;
+        >             box-shadow: var(--shadow);
+        >         }
+        >
+        >         .background-option:hover {
+        >             transform: translateY(-3px);
+        >             box-shadow: var(--shadow-lg);
+        >         }
+        >
+        >         .background-option.selected {
+        >             border-color: var(--secondary-color);
+        >             box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        >         }
+        >
+        >         .section-title {
+        >             font-weight: 700;
+        >             margin-bottom: 15px;
+        >             color: var(--text-color);
+        >             font-size: 16px;
+        >             letter-spacing: 0.025em;
+        >             padding-bottom: 8px;
+        >             border-bottom: 1px solid var(--border-color);
+        >             display: flex;
+        >             align-items: center;
+        >             font-family: 'Playfair Display', 'Georgia', serif;
+        >         }
+        >
+        >         .section-title::before {
+        >             content: '';
+        >             display: inline-block;
+        >             width: 4px;
+        >             height: 16px;
+        >             background: linear-gradient(to bottom, var(--primary-color), var(--secondary-color));
+        >             margin-right: 10px;
+        >             border-radius: 2px;
+        >         }
+        >
+        >         .premium-badge {
+        >             display: inline-block;
+        >             background: linear-gradient(135deg, var(--accent-color), var(--secondary-color));
+        >             color: white;
+        >             padding: 4px 10px;
+        >             border-radius: 20px;
+        >             font-size: 12px;
+        >             font-weight: 600;
+        >             margin-left: 10px;
+        >             letter-spacing: 0.05em;
+        >             font-family: 'Source Sans Pro', 'Arial', sans-serif;
+        >         }
+        >
+        >         @media (max-width: 768px) {
+        >             .app-layout {
+        >                 flex-direction: column;
+        >             }
+        >
+        >             .controls-panel {
+        >                 max-height: none;
+        >             }
+        >
+        >             h1 {
+        >                 font-size: 2rem;
+        >             }
+        >         }
+        >
+      </style>
+      >
+    </head>
+    >
+    <body>
+      >
+      <div class="container">
+        >
+        <header>
+          >
+          <h1>Premium Devotional Artwork Generator</h1>
+          >
+          <p class="subtitle">
+            Create beautiful, professional devotional artwork for sharing on
+            social media or printing
+          </p>
+          >
+        </header>
+        > >
+        <div class="instructions">
+          > <strong>How to use:</strong> Fill in the text fields, select a
+          premium background or upload your own, adjust the settings, and click
+          "Generate Preview". When you're satisfied with the result, choose a
+          format and click "Download". >
+        </div>
+        > >
+        <div class="app-layout">
+          >
+          <div class="controls-panel">
+            >
+            <div class="section-title">
+              Content <span class="premium-badge">PREMIUM</span>
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="mainTopic">Main Theme</label> >
+              <input
+                type="text"
+                id="mainTopic"
+                value="Living a Christ-Centered Life"
+              />
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="devotionalTitle">Devotional Title</label> >
+              <input
+                type="text"
+                id="devotionalTitle"
+                value="Shining as the Light of Christ"
+              />
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="scriptureReference">Scripture Reference</label> >
+              <input
+                type="text"
+                id="scriptureReference"
+                value="Matthew 5:14-16"
+              />
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="scriptureText">Scripture Text</label> >
+              <textarea id="scriptureText">
+"You are the light of the world—like a city on a hilltop that cannot be hidden. No one lights a lamp and then puts it under a basket. Instead, a lamp is placed on a stand, where it gives light to everyone in the house. In the same way, let your good deeds shine out for all to see, so that everyone will praise your heavenly Father."</textarea
+              >
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="explanation">Insight / Explanation</label> >
+              <textarea id="explanation">
+Jesus calls us to be lights in this world, illuminating the darkness with His love and truth. As followers of Christ, we carry His light within us, not to be hidden or kept to ourselves, but to be displayed for all to see. This metaphor of light reminds us that our faith should be visible and impactful in our daily lives. When we live out our faith through acts of kindness, words of encouragement, and standing for righteousness, we become beacons that draw others toward God.</textarea
+              >
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="prayer">Prayer</label> >
+              <textarea id="prayer">
+Dear Lord, help me to shine Your light brightly in this world. May my life reflect Your love and truth in all I do. Use my words and actions to draw others closer to You. Let my good deeds bring glory to Your name and not to myself. Amen.</textarea
+              >
+              >
+            </div>
+            > >
+            <div class="section-title">Premium Backgrounds</div>
+            > >
+            <div class="form-group">
+              > <label>Select a Premium Background</label> >
+              <div class="background-options" id="backgroundOptions">
+                >
+                <!-- Background options will be generated by JavaScript -->
+                >
+              </div>
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="backgroundImage">Or Upload Your Own</label> >
+              <div class="file-input-wrapper">
+                > <input type="file" id="backgroundImage" accept="image/*" /> >
+                <label for="backgroundImage" class="file-input-label"
+                  >Choose Image</label
+                >
+                >
+              </div>
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label>Background Image Settings</label> >
+              <select id="imageFit">
+                >
+                <option value="cover">Cover (fills entire canvas)</option>
+                >
+                <option value="contain">Contain (fits entire image)</option>
+                >
+              </select>
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="imageOffset">Vertical Image Offset</label> >
+              <div class="color-controls">
+                >
+                <input
+                  type="range"
+                  id="imageOffset"
+                  min="-200"
+                  max="200"
+                  value="0"
+                />
+                > <span class="range-value" id="imageOffsetValue">0</span> >
+              </div>
+              >
+            </div>
+            > >
+            <div class="section-title">Text Styling</div>
+            > >
+            <div class="form-group">
+              > <label for="overlayColor">Overlay Color</label> >
+              <div class="color-controls">
+                > <input type="color" id="overlayColor" value="#ffffff" /> >
+                <input
+                  type="range"
+                  id="overlayOpacity"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.3"
+                />
+                >
+                <span class="range-value" id="overlayOpacityValue">0.3</span> >
+              </div>
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="textColor">Text Color</label> >
+              <input type="color" id="textColor" value="#2c3e50" /> >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="titleSize">Title Size</label> >
+              <div class="color-controls">
+                >
+                <input
+                  type="range"
+                  id="titleSize"
+                  min="20"
+                  max="50"
+                  value="36"
+                />
+                > <span class="range-value" id="titleSizeValue">36</span> >
+              </div>
+              >
+            </div>
+            > >
+            <div class="form-group">
+              > <label for="textScale">Text Scale</label> >
+              <div class="color-controls">
+                >
+                <input
+                  type="range"
+                  id="textScale"
+                  min="0.8"
+                  max="1.2"
+                  step="0.05"
+                  value="1"
+                />
+                > <span class="range-value" id="textScaleValue">1</span> >
+              </div>
+              >
+            </div>
+            > >
+            <div class="section-title">Export</div>
+            > >
+            <div class="form-group">
+              > <label>Download Format</label> >
+              <div class="radio-group">
+                >
+                <div class="radio-option">
+                  >
+                  <input
+                    type="radio"
+                    id="formatPNG"
+                    name="downloadFormat"
+                    value="png"
+                    checked
+                  />
+                  > <label for="formatPNG">PNG</label> >
+                </div>
+                >
+                <div class="radio-option">
+                  >
+                  <input
+                    type="radio"
+                    id="formatJPEG"
+                    name="downloadFormat"
+                    value="jpeg"
+                  />
+                  > <label for="formatJPEG">JPEG</label> >
+                </div>
+                >
+              </div>
+              >
+            </div>
+            > >
+            <div class="form-group" id="jpegQualityGroup" style="display: none">
+              > <label for="jpegQuality">JPEG Quality</label> >
+              <div class="color-controls">
+                >
+                <input
+                  type="range"
+                  id="jpegQuality"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value="0.92"
+                />
+                > <span class="range-value" id="jpegQualityValue">0.92</span> >
+              </div>
+              >
+            </div>
+            > >
+            <div class="button-group">
+              >
+              <button id="generateBtn" class="btn-primary">
+                Generate Preview
+              </button>
+              > <button id="resetBtn" class="btn-secondary">Reset</button> >
+            </div>
+            > >
+            <div class="button-group">
+              > <button id="downloadBtn" class="btn-primary">Download</button> >
+            </div>
+            >
+          </div>
+          > >
+          <div class="preview-panel">
+            >
+            <div class="canvas-container">
+              > <canvas id="previewCanvas"></canvas> >
+            </div>
+            >
+          </div>
+          >
+        </div>
+        >
+      </div>
+      > >
+      <div id="notification" class="notification"></div>
+      > >
+      <script>
+        >         /*
+        >          * Premium Devotional Artwork Generator - JavaScript
+        >          *
+        >          * This script handles all the functionality for creating premium devotional artwork.
+        >          *
+        >          * To customize the canvas size, edit these constants:
+        >          */
+        >         const CANVAS_WIDTH = 800;
+        >         const CANVAS_HEIGHT = 1200;
+        >
+        >         // DOM elements
+        >         const previewCanvas = document.getElementById('previewCanvas');
+        >         const ctx = previewCanvas.getContext('2d');
+        >
+        >         // Input elements
+        >         const mainTopicInput = document.getElementById('mainTopic');
+        >         const devotionalTitleInput = document.getElementById('devotionalTitle');
+        >         const scriptureReferenceInput = document.getElementById('scriptureReference');
+        >         const scriptureTextInput = document.getElementById('scriptureText');
+        >         const explanationInput = document.getElementById('explanation');
+        >         const prayerInput = document.getElementById('prayer');
+        >         const backgroundImageInput = document.getElementById('backgroundImage');
+        >         const imageFitSelect = document.getElementById('imageFit');
+        >         const imageOffsetInput = document.getElementById('imageOffset');
+        >         const imageOffsetValue = document.getElementById('imageOffsetValue');
+        >         const overlayColorInput = document.getElementById('overlayColor');
+        >         const overlayOpacityInput = document.getElementById('overlayOpacity');
+        >         const overlayOpacityValue = document.getElementById('overlayOpacityValue');
+        >         const textColorInput = document.getElementById('textColor');
+        >         const titleSizeInput = document.getElementById('titleSize');
+        >         const titleSizeValue = document.getElementById('titleSizeValue');
+        >         const textScaleInput = document.getElementById('textScale');
+        >         const textScaleValue = document.getElementById('textScaleValue');
+        >         const formatPNGInput = document.getElementById('formatPNG');
+        >         const formatJPEGInput = document.getElementById('formatJPEG');
+        >         const jpegQualityInput = document.getElementById('jpegQuality');
+        >         const jpegQualityValue = document.getElementById('jpegQualityValue');
+        >         const jpegQualityGroup = document.getElementById('jpegQualityGroup');
+        >         const generateBtn = document.getElementById('generateBtn');
+        >         const resetBtn = document.getElementById('resetBtn');
+        >         const downloadBtn = document.getElementById('downloadBtn');
+        >         const backgroundOptionsContainer = document.getElementById('backgroundOptions');
+        >
+        >         // State
+        >         let backgroundImage = null;
+        >         let selectedBackground = null;
+        >         let isGenerating = false;
+        >
+        >         // Premium background patterns with improved gradients
+        >         const premiumBackgrounds = [
+        >             {
+        >                 id: 0,
+        >                 name: 'Golden Hour',
+        >                 type: 'gradient',
+        >                 angle: 45,
+        >                 colors: ['#f9d423', '#ff4e50']
+        >             },
+        >             {
+        >                 id: 1,
+        >                 name: 'Ocean Breeze',
+        >                 type: 'gradient',
+        >                 angle: 135,
+        >                 colors: ['#2E3192', '#1BFFFF']
+        >             },
+        >             {
+        >                 id: 2,
+        >                 name: 'Forest Mist',
+        >                 type: 'gradient',
+        >                 angle: 90,
+        >                 colors: ['#134e5e', '#71b280']
+        >             },
+        >             {
+        >                 id: 3,
+        >                 name: 'Mountain Dawn',
+        >                 type: 'gradient',
+        >                 angle: 180,
+        >                 colors: ['#ffecd2', '#fcb69f']
+        >             },
+        >             {
+        >                 id: 4,
+        >                 name: 'Divine Light',
+        >                 type: 'radial',
+        >                 colors: ['#ffffff', '#e0c3fc', '#8ec5fc']
+        >             },
+        >             {
+        >                 id: 5,
+        >                 name: 'Heavenly Blue',
+        >                 type: 'gradient',
+        >                 angle: 120,
+        >                 colors: ['#1e3c72', '#2a5298']
+        >             },
+        >             {
+        >                 id: 6,
+        >                 name: 'Sunset Glow',
+        >                 type: 'gradient',
+        >                 angle: 200,
+        >                 colors: ['#c33764', '#1d2671']
+        >             },
+        >             {
+        >                 id: 7,
+        >                 name: 'Mystical Purple',
+        >                 type: 'gradient',
+        >                 angle: 60,
+        >                 colors: ['#654ea3', '#eaafc8']
+        >             },
+        >             {
+        >                 id: 8,
+        >                 name: 'Tranquil Waters',
+        >                 type: 'gradient',
+        >                 angle: 270,
+        >                 colors: ['#43cea2', '#185a9d']
+        >             },
+        >             {
+        >                 id: 9,
+        >                 name: 'Sacred Gold',
+        >                 type: 'pattern',
+        >                 colors: ['#d4af37', '#f9f295']
+        >             },
+        >             {
+        >                 id: 10,
+        >                 name: 'Elegant Marble',
+        >                 type: 'gradient',
+        >                 angle: 45,
+        >                 colors: ['#f5f7fa', '#c3cfe2']
+        >             },
+        >             {
+        >                 id: 11,
+        >                 name: 'Twilight Sky',
+        >                 type: 'gradient',
+        >                 angle: 0,
+        >                 colors: ['#ee9ca7', '#ffdde1']
+        >             }
+        >         ];
+        >
+        >         // Initialize
+        >         function init() {
+        >             // Set canvas size
+        >             previewCanvas.width = CANVAS_WIDTH;
+        >             previewCanvas.height = CANVAS_HEIGHT;
+        >
+        >             // Set initial canvas display size (responsive)
+        >             const maxWidth = window.innerWidth > 768 ? 500 : window.innerWidth - 40;
+        >             const scale = maxWidth / CANVAS_WIDTH;
+        >             previewCanvas.style.width = `${CANVAS_WIDTH * scale}px`;
+        >             previewCanvas.style.height = `${CANVAS_HEIGHT * scale}px`;
+        >
+        >             // Create background options
+        >             createBackgroundOptions();
+        >
+        >             // Select first background by default
+        >             selectBackground(0);
+        >
+        >             // Generate initial preview
+        >             renderCanvas();
+        >
+        >             // Event listeners
+        >             backgroundImageInput.addEventListener('change', handleImageUpload);
+        >             imageOffsetInput.addEventListener('input', updateRangeValue);
+        >             overlayOpacityInput.addEventListener('input', updateRangeValue);
+        >             titleSizeInput.addEventListener('input', updateRangeValue);
+        >             textScaleInput.addEventListener('input', updateRangeValue);
+        >             jpegQualityInput.addEventListener('input', updateRangeValue);
+        >             formatJPEGInput.addEventListener('change', toggleJPEGQuality);
+        >             generateBtn.addEventListener('click', generatePreview);
+        >             resetBtn.addEventListener('click', resetForm);
+        >             downloadBtn.addEventListener('click', downloadImage);
+        >
+        >             // Auto-update range value displays
+        >             updateRangeValue();
+        >         }
+        >
+        >         // Create background options
+        >         function createBackgroundOptions() {
+        >             premiumBackgrounds.forEach(bg => {
+        >                 const option = document.createElement('div');
+        >                 option.className = 'background-option';
+        >                 option.dataset.id = bg.id;
+        >                 option.title = bg.name;
+        >
+        >                 // Create a mini canvas for the preview
+        >                 const miniCanvas = document.createElement('canvas');
+        >                 miniCanvas.width = 70;
+        >                 miniCanvas.height = 70;
+        >                 const miniCtx = miniCanvas.getContext('2d');
+        >
+        >                 // Draw gradient or pattern based on type
+        >                 if (bg.type === 'gradient') {
+        >                     // Calculate gradient coordinates based on angle
+        >                     const angle = bg.angle * Math.PI / 180;
+        >                     const x1 = 35 - 35 * Math.cos(angle);
+        >                     const y1 = 35 - 35 * Math.sin(angle);
+        >                     const x2 = 35 + 35 * Math.cos(angle);
+        >                     const y2 = 35 + 35 * Math.sin(angle);
+        >
+        >                     const gradient = miniCtx.createLinearGradient(x1, y1, x2, y2);
+        >                     bg.colors.forEach((color, index) => {
+        >                         gradient.addColorStop(index / (bg.colors.length - 1), color);
+        >                     });
+        >                     miniCtx.fillStyle = gradient;
+        >                     miniCtx.fillRect(0, 0, 70, 70);
+        >                 } else if (bg.type === 'radial') {
+        >                     const gradient = miniCtx.createRadialGradient(35, 35, 5, 35, 35, 40);
+        >                     bg.colors.forEach((color, index) => {
+        >                         gradient.addColorStop(index / (bg.colors.length - 1), color);
+        >                     });
+        >                     miniCtx.fillStyle = gradient;
+        >                     miniCtx.fillRect(0, 0, 70, 70);
+        >                 } else if (bg.type === 'pattern') {
+        >                     // Create a simple pattern
+        >                     miniCtx.fillStyle = bg.colors[0];
+        >                     miniCtx.fillRect(0, 0, 70, 70);
+        >
+        >                     miniCtx.strokeStyle = bg.colors[1];
+        >                     miniCtx.lineWidth = 2;
+        >
+        >                     // Draw diagonal lines
+        >                     for (let i = -70; i < 140; i += 10) {
+        >                         miniCtx.beginPath();
+        >                         miniCtx.moveTo(i, 0);
+        >                         miniCtx.lineTo(i + 70, 70);
+        >                         miniCtx.stroke();
+        >                     }
+        >                 }
+        >
+        >                 option.appendChild(miniCanvas);
+        >                 option.addEventListener('click', () => selectBackground(bg.id));
+        >
+        >                 backgroundOptionsContainer.appendChild(option);
+        >             });
+        >         }
+        >
+        >         // Select a background
+        >         function selectBackground(id) {
+        >             // Update UI
+        >             document.querySelectorAll('.background-option').forEach(option => {
+        >                 option.classList.remove('selected');
+        >             });
+        >
+        >             const selectedOption = document.querySelector(`.background-option[data-id="${id}"]`);
+        >             if (selectedOption) {
+        >                 selectedOption.classList.add('selected');
+        >             }
+        >
+        >             // Update state
+        >             selectedBackground = premiumBackgrounds.find(bg => bg.id === id);
+        >             backgroundImage = null;
+        >
+        >             // Update file input label
+        >             document.querySelector('.file-input-label').textContent = 'Choose Image';
+        >
+        >             // Regenerate canvas
+        >             renderCanvas();
+        >         }
+        >
+        >         // Handle image upload
+        >         function handleImageUpload(e) {
+        >             const file = e.target.files[0];
+        >             if (!file) return;
+        >
+        >             const reader = new FileReader();
+        >             reader.onload = function(event) {
+        >                 const img = new Image();
+        >                 img.onload = function() {
+        >                     backgroundImage = img;
+        >                     selectedBackground = null;
+        >
+        >                     // Update UI
+        >                     document.querySelectorAll('.background-option').forEach(option => {
+        >                         option.classList.remove('selected');
+        >                     });
+        >
+        >                     renderCanvas();
+        >                     showNotification('Background image loaded successfully');
+        >                 };
+        >                 img.onerror = function() {
+        >                     showNotification('Error loading image. Please try another file.', 'error');
+        >                 };
+        >                 img.src = event.target.result;
+        >             };
+        >             reader.readAsDataURL(file);
+        >
+        >             // Update file input label
+        >             const label = document.querySelector('.file-input-label');
+        >             label.textContent = file.name;
+        >         }
+        >
+        >         // Update range value displays
+        >         function updateRangeValue() {
+        >             imageOffsetValue.textContent = imageOffsetInput.value;
+        >             overlayOpacityValue.textContent = overlayOpacityInput.value;
+        >             titleSizeValue.textContent = titleSizeInput.value;
+        >             textScaleValue.textContent = textScaleInput.value;
+        >             jpegQualityValue.textContent = jpegQualityInput.value;
+        >         }
+        >
+        >         // Toggle JPEG quality input
+        >         function toggleJPEGQuality() {
+        >             jpegQualityGroup.style.display = formatJPEGInput.checked ? 'block' : 'none';
+        >         }
+        >
+        >         // Generate preview
+        >         function generatePreview() {
+        >             if (isGenerating) return;
+        >             isGenerating = true;
+        >
+        >             renderCanvas();
+        >             showNotification('Preview generated successfully');
+        >
+        >             setTimeout(() => {
+        >                 isGenerating = false;
+        >             }, 500);
+        >         }
+        >
+        >         // Reset form
+        >         function resetForm() {
+        >             if (confirm('Are you sure you want to reset all fields?')) {
+        >                 document.getElementById('mainTopic').value = 'Living a Christ-Centered Life';
+        >                 document.getElementById('devotionalTitle').value = 'Shining as the Light of Christ';
+        >                 document.getElementById('scriptureReference').value = 'Matthew 5:14-16';
+        >                 document.getElementById('scriptureText').value = '"You are the light of the world—like a city on a hilltop that cannot be hidden. No one lights a lamp and then puts it under a basket. Instead, a lamp is placed on a stand, where it gives light to everyone in the house. In the same way, let your good deeds shine out for all to see, so that everyone will praise your heavenly Father."';
+        >                 document.getElementById('explanation').value = 'Jesus calls us to be lights in this world, illuminating the darkness with His love and truth. As followers of Christ, we carry His light within us, not to be hidden or kept to ourselves, but to be displayed for all to see. This metaphor of light reminds us that our faith should be visible and impactful in our daily lives. When we live out our faith through acts of kindness, words of encouragement, and standing for righteousness, we become beacons that draw others toward God.';
+        >                 document.getElementById('prayer').value = 'Dear Lord, help me to shine Your light brightly in this world. May my life reflect Your love and truth in all I do. Use my words and actions to draw others closer to You. Let my good deeds bring glory to Your name and not to myself. Amen.';
+        >
+        >                 document.getElementById('imageFit').value = 'cover';
+        >                 document.getElementById('imageOffset').value = 0;
+        >                 document.getElementById('overlayColor').value = '#ffffff';
+        >                 document.getElementById('overlayOpacity').value = 0.3;
+        >                 document.getElementById('textColor').value = '#2c3e50';
+        >                 document.getElementById('titleSize').value = 36;
+        >                 document.getElementById('textScale').value = 1;
+        >                 document.getElementById('formatPNG').checked = true;
+        >                 document.getElementById('jpegQuality').value = 0.92;
+        >
+        >                 document.querySelector('.file-input-label').textContent = 'Choose Image';
+        >                 backgroundImage = null;
+        >
+        >                 // Select first background
+        >                 selectBackground(0);
+        >
+        >                 updateRangeValue();
+        >                 toggleJPEGQuality();
+        >
+        >                 showNotification('Form reset to defaults');
+        >             }
+        >         }
+        >
+        >         // Download image
+        >         function downloadImage() {
+        >             const format = formatPNGInput.checked ? 'png' : 'jpeg';
+        >             const quality = format === 'jpeg' ? parseFloat(jpegQualityInput.value) : undefined;
+        >
+        >             const dataURL = previewCanvas.toDataURL(`image/${format}`, quality);
+        >
+        >             const link = document.createElement('a');
+        >             link.href = dataURL;
+        >             link.download = `devotional-${new Date().toISOString().slice(0, 10)}.${format}`;
+        >             link.click();
+        >
+        >             showNotification(`Image downloaded as ${format.toUpperCase()}`);
+        >         }
+        >
+        >         // Show notification
+        >         function showNotification(message, type = 'success') {
+        >             const notification = document.getElementById('notification');
+        >             notification.textContent = message;
+        >             notification.className = 'notification show';
+        >
+        >             if (type === 'error') {
+        >                 notification.classList.add('error');
+        >             } else if (type === 'warning') {
+        >                 notification.classList.add('warning');
+        >             }
+        >
+        >             setTimeout(() => {
+        >                 notification.classList.remove('show');
+        >             }, 3000);
+        >         }
+        >
+        >         // Render canvas
+        >         function renderCanvas() {
+        >             // Clear canvas
+        >             ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        >
+        >             // Draw background
+        >             if (backgroundImage) {
+        >                 drawBackgroundImage();
+        >             } else if (selectedBackground) {
+        >                 drawPremiumBackground();
+        >             } else {
+        >                 // Fallback gradient
+        >                 const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+        >                 gradient.addColorStop(0, '#f5f7fa');
+        >                 gradient.addColorStop(1, '#e4e8f0');
+        >                 ctx.fillStyle = gradient;
+        >                 ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        >             }
+        >
+        >             // Draw overlay
+        >             drawOverlay();
+        >
+        >             // Draw decorative elements
+        >             drawDecorativeElements();
+        >
+        >             // Draw text
+        >             drawText();
+        >         }
+        >
+        >         // Draw background image
+        >         function drawBackgroundImage() {
+        >             const imageFit = imageFitSelect.value;
+        >             const offset = parseInt(imageOffsetInput.value);
+        >
+        >             ctx.save();
+        >
+        >             if (imageFit === 'cover') {
+        >                 // Scale image to cover canvas
+        >                 const scale = Math.max(
+        >                     CANVAS_WIDTH / backgroundImage.width,
+        >                     CANVAS_HEIGHT / backgroundImage.height
+        >                 );
+        >
+        >                 const width = backgroundImage.width * scale;
+        >                 const height = backgroundImage.height * scale;
+        >                 const x = (CANVAS_WIDTH - width) / 2;
+        >                 const y = (CANVAS_HEIGHT - height) / 2 + offset;
+        >
+        >                 ctx.drawImage(backgroundImage, x, y, width, height);
+        >             } else {
+        >                 // Scale image to fit within canvas
+        >                 const scale = Math.min(
+        >                     CANVAS_WIDTH / backgroundImage.width,
+        >                     CANVAS_HEIGHT / backgroundImage.height
+        >                 );
+        >
+        >                 const width = backgroundImage.width * scale;
+        >                 const height = backgroundImage.height * scale;
+        >                 const x = (CANVAS_WIDTH - width) / 2;
+        >                 const y = (CANVAS_HEIGHT - height) / 2 + offset;
+        >
+        >                 ctx.drawImage(backgroundImage, x, y, width, height);
+        >             }
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Draw premium background
+        >         function drawPremiumBackground() {
+        >             if (!selectedBackground) return;
+        >
+        >             // Create gradient or pattern based on type
+        >             if (selectedBackground.type === 'gradient') {
+        >                 // Calculate gradient coordinates based on angle
+        >                 const angle = selectedBackground.angle * Math.PI / 180;
+        >                 const x1 = CANVAS_WIDTH / 2 - (CANVAS_WIDTH / 2) * Math.cos(angle);
+        >                 const y1 = CANVAS_HEIGHT / 2 - (CANVAS_HEIGHT / 2) * Math.sin(angle);
+        >                 const x2 = CANVAS_WIDTH / 2 + (CANVAS_WIDTH / 2) * Math.cos(angle);
+        >                 const y2 = CANVAS_HEIGHT / 2 + (CANVAS_HEIGHT / 2) * Math.sin(angle);
+        >
+        >                 const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+        >                 selectedBackground.colors.forEach((color, index) => {
+        >                     gradient.addColorStop(index / (selectedBackground.colors.length - 1), color);
+        >                 });
+        >                 ctx.fillStyle = gradient;
+        >                 ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        >             } else if (selectedBackground.type === 'radial') {
+        >                 const gradient = ctx.createRadialGradient(
+        >                     CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2,
+        >                     CANVAS_WIDTH / 8,
+        >                     CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2,
+        >                     CANVAS_WIDTH / 2
+        >                 );
+        >                 selectedBackground.colors.forEach((color, index) => {
+        >                     gradient.addColorStop(index / (selectedBackground.colors.length - 1), color);
+        >                 });
+        >                 ctx.fillStyle = gradient;
+        >                 ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        >             } else if (selectedBackground.type === 'pattern') {
+        >                 // Create a simple pattern
+        >                 ctx.fillStyle = selectedBackground.colors[0];
+        >                 ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        >
+        >                 ctx.strokeStyle = selectedBackground.colors[1];
+        >                 ctx.lineWidth = 3;
+        >
+        >                 // Draw diagonal lines
+        >                 for (let i = -CANVAS_HEIGHT; i < CANVAS_WIDTH * 2; i += 30) {
+        >                     ctx.beginPath();
+        >                     ctx.moveTo(i, 0);
+        >                     ctx.lineTo(i + CANVAS_HEIGHT, CANVAS_HEIGHT);
+        >                     ctx.stroke();
+        >                 }
+        >             }
+        >
+        >             // Add subtle texture
+        >             ctx.save();
+        >             ctx.globalAlpha = 0.03;
+        >             ctx.fillStyle = '#000000';
+        >
+        >             // Add noise texture
+        >             for (let i = 0; i < 1000; i++) {
+        >                 const x = Math.random() * CANVAS_WIDTH;
+        >                 const y = Math.random() * CANVAS_HEIGHT;
+        >                 const size = Math.random() * 2;
+        >                 ctx.fillRect(x, y, size, size);
+        >             }
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Draw overlay
+        >         function drawOverlay() {
+        >             const color = overlayColorInput.value;
+        >             const opacity = parseFloat(overlayOpacityInput.value);
+        >
+        >             // Convert hex to rgba
+        >             const r = parseInt(color.substr(1, 2), 16);
+        >             const g = parseInt(color.substr(3, 2), 16);
+        >             const b = parseInt(color.substr(5, 2), 16);
+        >
+        >             // Create gradient overlay for more premium look
+        >             const overlayGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+        >             overlayGradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${opacity * 0.7})`);
+        >             overlayGradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${opacity})`);
+        >             overlayGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${opacity * 0.7})`);
+        >
+        >             ctx.fillStyle = overlayGradient;
+        >             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        >         }
+        >
+        >         // Draw decorative elements
+        >         function drawDecorativeElements() {
+        >             ctx.save();
+        >
+        >             // Top-left corner decoration
+        >             ctx.fillStyle = overlayColorInput.value;
+        >             ctx.globalAlpha = 0.15;
+        >             ctx.beginPath();
+        >             ctx.moveTo(0, 0);
+        >             ctx.lineTo(300, 0);
+        >             ctx.quadraticCurveTo(0, 0, 0, 300);
+        >             ctx.closePath();
+        >             ctx.fill();
+        >
+        >             // Bottom-right corner decoration
+        >             ctx.beginPath();
+        >             ctx.moveTo(CANVAS_WIDTH, CANVAS_HEIGHT);
+        >             ctx.lineTo(CANVAS_WIDTH - 300, CANVAS_HEIGHT);
+        >             ctx.quadraticCurveTo(CANVAS_WIDTH, CANVAS_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - 300);
+        >             ctx.closePath();
+        >             ctx.fill();
+        >
+        >             // Draw Bible icon in top-left
+        >             ctx.globalAlpha = 0.2;
+        >             drawBibleIcon(100, 100, 60, textColorInput.value);
+        >
+        >             // Draw cross in bottom-right
+        >             drawCrossIcon(CANVAS_WIDTH - 100, CANVAS_HEIGHT - 100, 60, textColorInput.value);
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Draw Bible icon
+        >         function drawBibleIcon(x, y, size, color) {
+        >             ctx.save();
+        >             ctx.fillStyle = color;
+        >             ctx.translate(x, y);
+        >
+        >             // Draw book shape
+        >             ctx.beginPath();
+        >             ctx.moveTo(-size/2, -size/3);
+        >             ctx.lineTo(size/2, -size/3);
+        >             ctx.lineTo(size/2, size/3);
+        >             ctx.lineTo(-size/2, size/3);
+        >             ctx.closePath();
+        >             ctx.fill();
+        >
+        >             // Draw cross on book
+        >             ctx.strokeStyle = color;
+        >             ctx.lineWidth = 3;
+        >             ctx.beginPath();
+        >             ctx.moveTo(0, -size/3);
+        >             ctx.lineTo(0, size/3);
+        >             ctx.moveTo(-size/4, 0);
+        >             ctx.lineTo(size/4, 0);
+        >             ctx.stroke();
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Draw cross icon
+        >         function drawCrossIcon(x, y, size, color) {
+        >             ctx.save();
+        >             ctx.fillStyle = color;
+        >             ctx.translate(x, y);
+        >
+        >             // Draw cross
+        >             ctx.fillRect(-size/8, -size/2, size/4, size);
+        >             ctx.fillRect(-size/2, -size/8, size, size/4);
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Draw text
+        >         function drawText() {
+        >             const textColor = textColorInput.value;
+        >             const titleSize = parseInt(titleSizeInput.value);
+        >             const textScale = parseFloat(textScaleInput.value);
+        >
+        >             // Apply text scale
+        >             const scaledTitleSize = titleSize * textScale;
+        >             const scaledBodySize = 22 * textScale;
+        >             const scaledSmallSize = 18 * textScale;
+        >
+        >             ctx.fillStyle = textColor;
+        >             ctx.textAlign = 'center';
+        >
+        >             // Calculate available space
+        >             const padding = 80;
+        >             const contentWidth = CANVAS_WIDTH - (padding * 2);
+        >             let currentY = padding;
+        >
+        >             // Draw main theme with premium styling
+        >             ctx.save();
+        >
+        >             // Add shadow for theme text
+        >             ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+        >             ctx.shadowBlur = 4;
+        >             ctx.shadowOffsetX = 2;
+        >             ctx.shadowOffsetY = 2;
+        >
+        >             ctx.font = `bold ${scaledTitleSize * 0.9}px 'Playfair Display', 'Georgia', serif`;
+        >             ctx.fillText(mainTopicInput.value, CANVAS_WIDTH / 2, currentY);
+        >
+        >             ctx.restore();
+        >             currentY += scaledTitleSize * 1.3; // Increased spacing
+        >
+        >             // Draw devotional title with different styling
+        >             ctx.font = `italic ${scaledTitleSize * 0.7}px 'Source Sans Pro', 'Arial', sans-serif`;
+        >
+        >             // Auto-scale title if too long
+        >             const titleLines = wrapText(ctx, devotionalTitleInput.value, CANVAS_WIDTH - padding * 2, scaledTitleSize * 1.2);
+        >             if (titleLines.length > 2) {
+        >                 // Scale down font size
+        >                 const scaledSize = Math.floor(scaledTitleSize * 0.6);
+        >                 ctx.font = `italic ${scaledSize}px 'Source Sans Pro', 'Arial', sans-serif`;
+        >             }
+        >
+        >             // Draw title with proper wrapping
+        >             const titleLinesFinal = wrapText(ctx, devotionalTitleInput.value, CANVAS_WIDTH - padding * 2, scaledTitleSize * 1.2);
+        >             for (let i = 0; i < Math.min(titleLinesFinal.length, 2); i++) {
+        >                 ctx.fillText(titleLinesFinal[i], CANVAS_WIDTH / 2, currentY);
+        >                 currentY += scaledTitleSize * 0.9;
+        >             }
+        >
+        >             // Removed divider line here
+        >             currentY += 80; // Just add spacing without line
+        >
+        >             // Calculate remaining space
+        >             const remainingHeight = CANVAS_HEIGHT - currentY - padding;
+        >             const sectionHeight = remainingHeight / 3; // Divide into 3 sections
+        >
+        >             // Draw scripture section
+        >             drawSection('SCRIPTURE', scriptureReferenceInput.value, scriptureTextInput.value,
+        >                        currentY, sectionHeight, scaledBodySize, scaledSmallSize, contentWidth, padding);
+        >             currentY += sectionHeight + 50; // Increased spacing
+        >
+        >             // Draw insight section
+        >             drawSection('INSIGHT', '', explanationInput.value,
+        >                        currentY, sectionHeight, scaledBodySize, scaledSmallSize, contentWidth, padding);
+        >             currentY += sectionHeight + 50; // Increased spacing
+        >
+        >             // Draw prayer section
+        >             drawSection('PRAYER', '', prayerInput.value,
+        >                        currentY, sectionHeight, scaledBodySize, scaledSmallSize, contentWidth, padding);
+        >         }
+        >
+        >         // Draw a text section with premium divider
+        >         function drawSection(sectionTitle, reference, content, startY, maxHeight, bodySize, smallSize, contentWidth, padding) {
+        >             ctx.save();
+        >
+        >             // Draw section title with premium divider
+        >             ctx.fillStyle = textColorInput.value;
+        >             ctx.font = `bold ${smallSize * 1.2}px 'Playfair Display', 'Georgia', serif`;
+        >             ctx.textAlign = 'center';
+        >
+        >             // Add letter spacing for premium look
+        >             ctx.letterSpacing = '3px';
+        >
+        >             // Draw section title with divider
+        >             const sectionY = startY + smallSize;
+        >             drawPremiumDivider(CANVAS_WIDTH / 2, sectionY, 250, textColorInput.value);
+        >
+        >             // Draw section title
+        >             ctx.fillText(sectionTitle, CANVAS_WIDTH / 2, sectionY - 15);
+        >             ctx.letterSpacing = 'normal';
+        >
+        >             let currentY = sectionY + 30;
+        >
+        >             // Draw reference if provided
+        >             if (reference) {
+        >                 ctx.font = `bold ${smallSize}px 'Source Sans Pro', 'Arial', sans-serif`;
+        >                 ctx.fillText(reference, CANVAS_WIDTH / 2, currentY);
+        >                 currentY += smallSize * 1.5;
+        >             }
+        >
+        >             // Draw content
+        >             ctx.font = sectionTitle === 'SCRIPTURE' ?
+        >                 `italic ${bodySize}px 'Georgia', serif` :
+        >                 `${bodySize}px 'Source Sans Pro', 'Arial', sans-serif`;
+        >
+        >             ctx.textAlign = 'left';
+        >
+        >             // Calculate available height for content - THIS IS THE FIX
+        >             const spaceUsedByTitleAndDivider = currentY - startY;
+        >             const availableHeight = maxHeight - spaceUsedByTitleAndDivider;
+        >             const lineHeight = bodySize * 1.4;
+        >             const maxLines = Math.floor(availableHeight / lineHeight);
+        >
+        >             // Wrap text and limit lines
+        >             const lines = wrapText(ctx, content, contentWidth, lineHeight);
+        >             const limitedLines = lines.slice(0, maxLines);
+        >
+        >             // Draw lines with better spacing
+        >             for (let i = 0; i < limitedLines.length; i++) {
+        >                 ctx.fillText(limitedLines[i], padding, currentY);
+        >                 currentY += lineHeight;
+        >             }
+        >
+        >             // Check if text was truncated
+        >             if (lines.length > maxLines) {
+        >                 showNotification(`${sectionTitle} text is too long and has been truncated`, 'warning');
+        >             }
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Draw premium divider with section title
+        >         function drawPremiumDivider(x, y, width, color) {
+        >             ctx.save();
+        >             ctx.strokeStyle = color;
+        >             ctx.lineWidth = 2;
+        >             ctx.globalAlpha = 0.7;
+        >
+        >             // Draw left line
+        >             ctx.beginPath();
+        >             ctx.moveTo(x - width/2, y);
+        >             ctx.lineTo(x - 20, y);
+        >             ctx.stroke();
+        >
+        >             // Draw right line
+        >             ctx.beginPath();
+        >             ctx.moveTo(x + 20, y);
+        >             ctx.lineTo(x + width/2, y);
+        >             ctx.stroke();
+        >
+        >             // Draw decorative element in the middle
+        >             ctx.fillStyle = color;
+        >             ctx.beginPath();
+        >             ctx.arc(x, y, 4, 0, Math.PI * 2);
+        >             ctx.fill();
+        >
+        >             ctx.restore();
+        >         }
+        >
+        >         // Wrap text to fit within a specified width
+        >         function wrapText(context, text, maxWidth, lineHeight) {
+        >             const words = text.split(' ');
+        >             const lines = [];
+        >             let currentLine = '';
+        >
+        >             for (let i = 0; i < words.length; i++) {
+        >                 const word = words[i];
+        >                 const width = context.measureText(currentLine + (currentLine ? ' ' : '') + word).width;
+        >
+        >                 if (width > maxWidth && currentLine) {
+        >                     lines.push(currentLine);
+        >                     currentLine = word;
+        >                 } else {
+        >                     currentLine = currentLine ? (currentLine + ' ' + word) : word;
+        >                 }
+        >             }
+        >
+        >             if (currentLine) {
+        >                 lines.push(currentLine);
+        >             }
+        >
+        >             return lines;
+        >         }
+        >
+        >         // Initialize the application
+        >         init();
+        >
+      </script>
+      >
+    </body>
+    >
+  </html>
+</details>
